@@ -1,0 +1,81 @@
+name: Sync skills to RetrogradeLabs/lune
+
+# Mirrors `skills/` from this repo into the canonical Claude Code plugin's
+# `skills/` directory whenever it changes here. The plugin (RetrogradeLabs/lune)
+# is the install target for Claude Code users; keeping it in sync means we
+# only ever edit skills in one place.
+#
+# Trigger: any push to `main` that touches `skills/`. Manual via workflow_dispatch.
+#
+# Required secret: `LUNE_PLUGIN_SYNC_TOKEN` — a fine-grained PAT or classic PAT
+# with `Contents: Read and Write` on the `RetrogradeLabs/lune` repo. Set in
+# this repo's Settings → Secrets and variables → Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+      - ".github/workflows/sync-to-plugin.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-to-plugin
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out lune-skills
+        uses: actions/checkout@v4
+        with:
+          path: lune-skills
+
+      - name: Check out lune (plugin)
+        uses: actions/checkout@v4
+        with:
+          repository: RetrogradeLabs/lune
+          token: ${{ secrets.LUNE_PLUGIN_SYNC_TOKEN }}
+          path: lune
+
+      - name: Mirror skills/ into the plugin
+        run: |
+          set -euo pipefail
+          # Wipe the plugin's skills/ entirely and re-copy. Avoids stale files
+          # from skills that were renamed or deleted upstream.
+          rm -rf lune/skills
+          mkdir -p lune/skills
+          cp -R lune-skills/skills/. lune/skills/
+
+      - name: Detect changes
+        id: diff
+        working-directory: lune
+        run: |
+          if git diff --quiet skills/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No skill changes — skipping commit."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat skills/
+          fi
+
+      - name: Commit + push
+        if: steps.diff.outputs.changed == 'true'
+        working-directory: lune
+        env:
+          GH_SHA: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+          GH_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "lune-skills-sync[bot]"
+          git config user.email "noreply@luneresearch.com"
+          git add skills/
+          git commit -m "chore(skills): sync from RetrogradeLabs/lune-skills@${GH_SHA::7}
+
+Mirrored automatically by lune-skills CI run ${GH_RUN}.
+Source: https://github.com/${GH_REPO}/commit/${GH_SHA}"
+          git push
