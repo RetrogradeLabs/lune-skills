@@ -44,8 +44,6 @@ jobs:
       - name: Mirror skills/ into the plugin
         run: |
           set -euo pipefail
-          # Wipe the plugin's skills/ entirely and re-copy. Avoids stale files
-          # from skills that were renamed or deleted upstream.
           rm -rf lune/skills
           mkdir -p lune/skills
           cp -R lune-skills/skills/. lune/skills/
@@ -74,8 +72,11 @@ jobs:
           git config user.name "lune-skills-sync[bot]"
           git config user.email "noreply@luneresearch.com"
           git add skills/
-          git commit -m "chore(skills): sync from RetrogradeLabs/lune-skills@${GH_SHA::7}
-
-Mirrored automatically by lune-skills CI run ${GH_RUN}.
-Source: https://github.com/${GH_REPO}/commit/${GH_SHA}"
+          short="${GH_SHA:0:7}"
+          {
+            printf 'chore(skills): sync from %s@%s\n\n' "$GH_REPO" "$short"
+            printf 'Mirrored automatically by lune-skills CI run %s.\n' "$GH_RUN"
+            printf 'Source: https://github.com/%s/commit/%s\n' "$GH_REPO" "$GH_SHA"
+          } > /tmp/commit-msg
+          git commit -F /tmp/commit-msg
           git push
